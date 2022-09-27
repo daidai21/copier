@@ -13,19 +13,23 @@ import (
 // These flags define options for tag handling
 const (
 	// Denotes that a destination field must be copied to. If copying fails then a panic will ensue.
+	// 表示必须将目标字段复制到。如果复制失败，则会引发 panic
 	tagMust uint8 = 1 << iota
 
 	// Denotes that the program should not panic when the must flag is on and
 	// value is not copied. The program will return an error instead.
+	// //指示当必须标志打开时程序不应panic，并且未复制值。程序将返回错误。
 	tagNoPanic
 
 	// Ignore a destination field from being copied to.
+	// 忽略要复制到的目标字段
 	tagIgnore
 
 	// Denotes that the value as been copied
 	hasCopied
 
 	// Some default converter types for a nicer syntax
+	// 一些默认的转换器类型可以获得更好的语法
 	String  string  = ""
 	Bool    bool    = false
 	Int     int     = 0
@@ -71,33 +75,37 @@ type converterPair struct {
 
 // Tag Flags
 type flags struct {
-	BitFlags  map[string]uint8
+	BitFlags  map[string]uint8 // TODO
 	SrcNames  tagNameMapping
 	DestNames tagNameMapping
 }
 
 // Field Tag name mapping
+// 字段名和tag相互映射
 type tagNameMapping struct {
 	FieldNameToTag map[string]string
 	TagToFieldName map[string]string
 }
 
 // Copy copy things
+// 对外的方法
 func Copy(toValue interface{}, fromValue interface{}) (err error) {
 	return copier(toValue, fromValue, Option{})
 }
 
 // CopyWithOption copy with option
+// 对外的方法
 func CopyWithOption(toValue interface{}, fromValue interface{}, opt Option) (err error) {
 	return copier(toValue, fromValue, opt)
 }
 
+// TODO
 func copier(toValue interface{}, fromValue interface{}, opt Option) (err error) {
 	var (
-		isSlice    bool
-		amount     = 1
-		from       = indirect(reflect.ValueOf(fromValue))
-		to         = indirect(reflect.ValueOf(toValue))
+		isSlice    bool // TODO
+		amount     = 1 // 要写入的长度，如slice的长度
+		from       = indirect(reflect.ValueOf(fromValue)) // 指针取值
+		to         = indirect(reflect.ValueOf(toValue)) // 指针取值
 		converters = opt.converters()
 	)
 
@@ -110,14 +118,14 @@ func copier(toValue interface{}, fromValue interface{}, opt Option) (err error) 
 		return ErrInvalidCopyFrom
 	}
 
-	fromType, isPtrFrom := indirectType(from.Type())
-	toType, _ := indirectType(to.Type())
+	fromType, isPtrFrom := indirectType(from.Type()) // 取出类型
+	toType, _ := indirectType(to.Type())  // 取出类型
 
 	if fromType.Kind() == reflect.Interface {
 		fromType = reflect.TypeOf(from.Interface())
 	}
 
-	if toType.Kind() == reflect.Interface {
+	if toType.Kind() == reflect.Interface { // TODO
 		toType, _ = indirectType(reflect.TypeOf(to.Interface()))
 		oldTo := to
 		to = reflect.New(reflect.TypeOf(to.Interface())).Elem()
@@ -127,6 +135,9 @@ func copier(toValue interface{}, fromValue interface{}, opt Option) (err error) 
 	}
 
 	// Just set it if possible to assign for normal types
+	// 如果可能，只需将其设置为普通类型
+	// 不是Slice && 不是Struct && 不是Map
+	// 都是基础类型的情况 如： int string 这样，直接赋值就行
 	if from.Kind() != reflect.Slice && from.Kind() != reflect.Struct && from.Kind() != reflect.Map && (from.Type().AssignableTo(to.Type()) || from.Type().ConvertibleTo(to.Type())) {
 		if !isPtrFrom || !opt.DeepCopy {
 			to.Set(from.Convert(to.Type()))
@@ -138,12 +149,13 @@ func copier(toValue interface{}, fromValue interface{}, opt Option) (err error) 
 		return
 	}
 
+	// 都是基础类型map 的情况
 	if from.Kind() != reflect.Slice && fromType.Kind() == reflect.Map && toType.Kind() == reflect.Map {
 		if !fromType.Key().ConvertibleTo(toType.Key()) {
 			return ErrMapKeyNotMatch
 		}
 
-		if to.IsNil() {
+		if to.IsNil() { // 初始化new一个空的map
 			to.Set(reflect.MakeMapWithSize(toType, from.Len()))
 		}
 
@@ -176,12 +188,13 @@ func copier(toValue interface{}, fromValue interface{}, opt Option) (err error) 
 		return
 	}
 
+	// 都是基础类型slice 的情况
 	if from.Kind() == reflect.Slice && to.Kind() == reflect.Slice {
-		if to.IsNil() {
+		if to.IsNil() { // new一个新空的slice
 			slice := reflect.MakeSlice(reflect.SliceOf(to.Type().Elem()), from.Len(), from.Cap())
 			to.Set(slice)
 		}
-		if fromType.ConvertibleTo(toType) {
+		if fromType.ConvertibleTo(toType) { // from是否可转为to类型
 			for i := 0; i < from.Len(); i++ {
 				if to.Len() < i+1 {
 					to.Set(reflect.Append(to, reflect.New(to.Type().Elem()).Elem()))
@@ -189,6 +202,7 @@ func copier(toValue interface{}, fromValue interface{}, opt Option) (err error) 
 
 				if !set(to.Index(i), from.Index(i), opt.DeepCopy, converters) {
 					// ignore error while copy slice element
+					// 复制切片元素时忽略错误
 					err = copier(to.Index(i).Addr().Interface(), from.Index(i).Interface(), opt)
 					if err != nil {
 						continue
@@ -199,11 +213,13 @@ func copier(toValue interface{}, fromValue interface{}, opt Option) (err error) 
 		}
 	}
 
+	// from和to都不是结构体类型 只能跳过了
 	if fromType.Kind() != reflect.Struct || toType.Kind() != reflect.Struct {
 		// skip not supported type
 		return
 	}
 
+	// slice的情况
 	if from.Kind() == reflect.Slice || to.Kind() == reflect.Slice {
 		isSlice = true
 		if from.Kind() == reflect.Slice {
@@ -229,7 +245,7 @@ func copier(toValue interface{}, fromValue interface{}, opt Option) (err error) 
 		}
 
 		destKind := dest.Kind()
-		initDest := false
+		initDest := false // 是否已经初始化目标
 		if destKind == reflect.Interface {
 			initDest = true
 			dest = indirect(reflect.New(toType))
@@ -246,6 +262,7 @@ func copier(toValue interface{}, fromValue interface{}, opt Option) (err error) 
 			copyUnexportedStructFields(dest, source)
 
 			// Copy from source field to dest field or method
+			// 从源字段复制到目标字段或方法
 			fromTypeFields := deepFields(fromType)
 			for _, field := range fromTypeFields {
 				name := field.Name
@@ -318,6 +335,7 @@ func copier(toValue interface{}, fromValue interface{}, opt Option) (err error) 
 			}
 
 			// Copy from from method to dest field
+			// 从源方法复制到目标字段
 			for _, field := range deepFields(toType) {
 				name := field.Name
 				srcFieldName, destFieldName := getFieldName(name, flgs)
@@ -376,6 +394,7 @@ func copier(toValue interface{}, fromValue interface{}, opt Option) (err error) 
 	return
 }
 
+// copy 不可导出的struct字段，也就是首字母小写的字段
 func copyUnexportedStructFields(to, from reflect.Value) {
 	if from.Kind() != reflect.Struct || to.Kind() != reflect.Struct || !from.Type().AssignableTo(to.Type()) {
 		return
@@ -401,11 +420,13 @@ func shouldIgnore(v reflect.Value, ignoreEmpty bool) bool {
 var deepFieldsLock sync.RWMutex
 var deepFieldsMap = make(map[reflect.Type][]reflect.StructField)
 
+
+// 获取结构体的类型对应的field切片
 func deepFields(reflectType reflect.Type) []reflect.StructField {
 	deepFieldsLock.RLock()
 	cache, ok := deepFieldsMap[reflectType]
 	deepFieldsLock.RUnlock()
-	if ok {
+	if ok { // 如果解析过就从缓存拿
 		return cache
 	}
 	var res []reflect.StructField
@@ -421,6 +442,7 @@ func deepFields(reflectType reflect.Type) []reflect.StructField {
 				fields = append(fields, v)
 				if v.Anonymous {
 					// also consider fields of anonymous fields as fields of the root
+					// 还将匿名字段的字段视为根字段
 					fields = append(fields, deepFields(v.Type)...)
 				}
 			}
@@ -434,6 +456,7 @@ func deepFields(reflectType reflect.Type) []reflect.StructField {
 	return res
 }
 
+// 将指针的Value转为Value 类似解引用
 func indirect(reflectValue reflect.Value) reflect.Value {
 	for reflectValue.Kind() == reflect.Ptr {
 		reflectValue = reflectValue.Elem()
@@ -441,6 +464,7 @@ func indirect(reflectValue reflect.Value) reflect.Value {
 	return reflectValue
 }
 
+// 将指针的Type转为Type 类似解引用
 func indirectType(reflectType reflect.Type) (_ reflect.Type, isPtr bool) {
 	for reflectType.Kind() == reflect.Ptr || reflectType.Kind() == reflect.Slice {
 		reflectType = reflectType.Elem()
@@ -449,6 +473,8 @@ func indirectType(reflectType reflect.Type) (_ reflect.Type, isPtr bool) {
 	return reflectType, isPtr
 }
 
+// from set to
+// 返回值的是是否set成功
 func set(to, from reflect.Value, deepCopy bool, converters map[converterPair]TypeConverter) bool {
 	if !from.IsValid() {
 		return true
@@ -573,6 +599,7 @@ func lookupAndCopyWithConverter(to, from reflect.Value, converters map[converter
 }
 
 // parseTags Parses struct tags and returns uint8 bit flags.
+// 解析注释的tag为uint8的tag
 func parseTags(tag string) (flg uint8, name string, err error) {
 	for _, t := range strings.Split(tag, ",") {
 		switch t {
@@ -595,6 +622,7 @@ func parseTags(tag string) (flg uint8, name string, err error) {
 }
 
 // getTagFlags Parses struct tags for bit flags, field name.
+// 解析结构体的tag为bit tag，字段名
 func getFlags(dest, src reflect.Value, toType, fromType reflect.Type) (flags, error) {
 	flgs := flags{
 		BitFlags: map[string]uint8{},
@@ -617,7 +645,7 @@ func getFlags(dest, src reflect.Value, toType, fromType reflect.Type) (flags, er
 
 	// Get a list dest of tags
 	for _, field := range toTypeFields {
-		tags := field.Tag.Get("copier")
+		tags := field.Tag.Get("copier") // 注解获取
 		if tags != "" {
 			var name string
 			var err error
@@ -648,6 +676,7 @@ func getFlags(dest, src reflect.Value, toType, fromType reflect.Type) (flags, er
 }
 
 // checkBitFlags Checks flags for error or panic conditions.
+// 检查标志是否存在错误或panic条件
 func checkBitFlags(flagsList map[string]uint8) (err error) {
 	// Check flag conditions were met
 	for name, flgs := range flagsList {
